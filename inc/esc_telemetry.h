@@ -1,17 +1,17 @@
 /**
  * @file esc_telemetry.h
- * @brief ESC Serial Telemetry reception (KISS/BLHeli32 protocol)
+ * @brief ESC Telemetry interface for Bidirectional DShot
  *
- * Receives telemetry data from ESC via dedicated UART line.
- * Protocol: 115200 baud, 10-byte packets
+ * This module provides a compatibility layer for telemetry data
+ * received via bidirectional DShot on the same signal wire.
  *
- * Packet format:
- *   Byte 0:   Temperature (°C)
- *   Byte 1-2: Voltage (0.01V resolution, big-endian)
- *   Byte 3-4: Current (0.01A resolution, big-endian)
- *   Byte 5-6: Consumption (mAh, big-endian)
- *   Byte 7-8: eRPM / 100 (big-endian)
- *   Byte 9:   CRC8
+ * With bidirectional DShot:
+ * - Telemetry is received on PA8 (same pin as DShot output)
+ * - No separate UART wire needed
+ * - Only eRPM data is available (no voltage/current/temperature)
+ *
+ * For full telemetry (voltage, current, temp), use ESCs that support
+ * the separate serial telemetry wire, or EDT (Extended DShot Telemetry).
  */
 
 #ifndef ESC_TELEMETRY_H
@@ -20,29 +20,20 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Hardware Configuration - ADJUST FOR YOUR BOARD */
-#define ESC_TELEM_USART         USART1
-#define ESC_TELEM_USART_RCC     RCC_APB2ENR_USART1EN
-#define ESC_TELEM_GPIO_PORT     GPIOA
-#define ESC_TELEM_RX_PIN        10      /* PA10 for USART1_RX */
-#define ESC_TELEM_GPIO_AF       7       /* AF7 for USART1 */
-#define ESC_TELEM_BAUDRATE      115200
-
-/* Telemetry Protocol Constants */
-#define ESC_TELEM_PACKET_SIZE   10
-#define ESC_TELEM_TIMEOUT_MS    100     /* Timeout for incomplete packets */
-
 /* Motor Configuration */
 #define MOTOR_POLES             14      /* Motor pole pairs (adjust for your motor) */
 
 /**
  * @brief ESC telemetry data structure
+ *
+ * With basic bidirectional DShot, only RPM data is available.
+ * Voltage, current, and temperature fields are set to 0.
  */
 typedef struct {
-    uint8_t  temperature;       /* Temperature in °C */
-    uint16_t voltage;           /* Voltage in 0.01V units (e.g., 1480 = 14.80V) */
-    uint16_t current;           /* Current in 0.01A units (e.g., 1250 = 12.50A) */
-    uint16_t consumption;       /* Consumption in mAh */
+    uint8_t  temperature;       /* Temperature in °C (not available in basic bidir) */
+    uint16_t voltage;           /* Voltage in 0.01V units (not available in basic bidir) */
+    uint16_t current;           /* Current in 0.01A units (not available in basic bidir) */
+    uint16_t consumption;       /* Consumption in mAh (not available in basic bidir) */
     uint16_t erpm;              /* Electrical RPM / 100 */
     uint32_t rpm;               /* Actual RPM (calculated from eRPM and poles) */
     bool     valid;             /* Data validity flag */
@@ -50,23 +41,28 @@ typedef struct {
 } esc_telemetry_t;
 
 /**
- * @brief Initialize ESC telemetry reception
- * @return true if successful, false otherwise
+ * @brief Initialize ESC telemetry
+ *
+ * For bidirectional DShot, this is handled by dshot_init().
+ * This function exists for API compatibility.
+ *
+ * @return true (always succeeds as DShot handles initialization)
  */
 bool esc_telemetry_init(void);
 
 /**
- * @brief Process incoming telemetry data (call frequently from main loop)
+ * @brief Process incoming telemetry data
  *
- * This function checks for incoming bytes and parses complete packets.
- * Should be called regularly to avoid buffer overflow.
+ * For bidirectional DShot, call dshot_update() instead.
+ * This function exists for API compatibility.
  */
 void esc_telemetry_update(void);
 
 /**
- * @brief Increment internal tick counter (call from main loop, ~1ms interval)
+ * @brief Increment internal tick counter
  *
- * Used for timeout detection on incomplete packets.
+ * For bidirectional DShot, timing is handled internally.
+ * This function exists for API compatibility.
  */
 void esc_telemetry_tick(void);
 
@@ -84,13 +80,13 @@ bool esc_telemetry_available(void);
 
 /**
  * @brief Get voltage as float in volts
- * @return Voltage in volts (e.g., 14.80)
+ * @return 0.0 (not available with basic bidirectional DShot)
  */
 float esc_telemetry_get_voltage_v(void);
 
 /**
  * @brief Get current as float in amps
- * @return Current in amps (e.g., 12.50)
+ * @return 0.0 (not available with basic bidirectional DShot)
  */
 float esc_telemetry_get_current_a(void);
 

@@ -1,18 +1,19 @@
-# DShot Motor Controller for STM32
+# BiDShot - Bidirectional DShot Motor Controller for STM32
 
-A bare-metal DShot600 motor controller with serial ESC telemetry for STM32F4 microcontrollers. Built without vendor HAL libraries or Arduino—just register-level C code.
+A bare-metal bidirectional DShot600 motor controller for STM32F4 microcontrollers. Features single-wire telemetry—the ESC responds with RPM data on the same signal wire used for commands. Built without vendor HAL libraries or Arduino—just register-level C code.
 
 ## Features
 
-- **DShot600 Protocol**: Digital motor control via Timer + DMA
-- **Serial ESC Telemetry**: Real-time RPM, voltage, current, temperature, and consumption data (KISS/BLHeli32 protocol)
+- **Bidirectional DShot600**: Digital motor control with telemetry on a single wire
+- **Single-Wire Telemetry**: Real-time eRPM data received on the signal wire (no separate telemetry wire needed)
+- **GCR Decoding**: Automatic decoding of 21-bit GCR-encoded ESC responses
 - **Interactive Control**: Serial terminal interface for throttle adjustment and testing
 - **Minimal Dependencies**: No HAL, no RTOS—just CMSIS headers and your toolchain
 
 ## Hardware Requirements
 
 - STM32F4 board (tested on STM32F411, adaptable to others)
-- ESC with serial telemetry support (BLHeli_32, KISS, etc.)
+- ESC with bidirectional DShot support (BLHeli_32 with bidir enabled, etc.)
 - Brushless motor
 - ST-Link programmer
 - USB-to-Serial adapter (for debug UART)
@@ -21,10 +22,11 @@ A bare-metal DShot600 motor controller with serial ESC telemetry for STM32F4 mic
 
 | Function | Pin | Notes |
 |----------|-----|-------|
-| DShot Signal | PA8 | TIM1_CH1 output to ESC |
-| ESC Telemetry | PA10 | USART1_RX from ESC telemetry wire |
+| DShot Signal + Telemetry | PA8 | TIM1_CH1 - bidirectional (output for commands, input for telemetry) |
 | Debug UART TX | PA2 | USART2 to serial adapter |
 | Debug UART RX | PA3 | USART2 from serial adapter |
+
+**Note:** With bidirectional DShot, telemetry is received on the same PA8 pin used for the DShot signal. No separate telemetry wire is required.
 
 ## Software Requirements
 
@@ -79,11 +81,13 @@ BiDShot/
 **DShot settings** (`inc/dshot.h`):
 - `DSHOT_SPEED` — Protocol speed (150, 300, 600, 1200)
 - `DSHOT_TIMER` — Timer peripheral (TIM1)
-- `DSHOT_GPIO_PIN` — Output pin (8 for PA8)
-
-**Telemetry settings** (`inc/esc_telemetry.h`):
-- `ESC_TELEM_RX_PIN` — Telemetry input pin (10 for PA10)
+- `DSHOT_GPIO_PIN` — Bidirectional signal pin (8 for PA8)
 - `MOTOR_POLES` — Motor pole pairs (for RPM calculation)
+
+**Telemetry notes** (`inc/esc_telemetry.h`):
+- With bidirectional DShot, telemetry is received on the same pin as the DShot signal
+- Only eRPM data is available (no voltage/current/temperature)
+- For full telemetry, use ESCs that support Extended DShot Telemetry (EDT)
 
 ## Building and Flashing
 
@@ -96,11 +100,11 @@ make size     # Show memory usage
 
 ## Usage
 
-1. Connect ESC signal wire to PA8
-2. Connect ESC telemetry wire to PA10
-3. Connect debug UART (PA2 TX) to USB-serial adapter
-4. Flash the firmware
-5. Open serial terminal at 115200 baud
+1. Connect ESC signal wire to PA8 (this single wire handles both commands and telemetry)
+2. Connect debug UART (PA2 TX) to USB-serial adapter
+3. Flash the firmware
+4. Open serial terminal at 115200 baud
+5. Enable bidirectional DShot in your ESC configurator (e.g., BLHeli_32 Configurator)
 
 ### Operating Modes
 
@@ -116,8 +120,10 @@ make size     # Show memory usage
 ### Telemetry Output
 
 ```
-[Thr: 548 | RPM: 12450 | 42 C | 14.80V | 3.25A | 127mAh]
+[Thr: 548 | RPM: 12450 | eRPM: 87150]
 ```
+
+**Note:** Bidirectional DShot only provides RPM data. For voltage, current, and temperature, use ESCs with Extended DShot Telemetry (EDT) or a separate serial telemetry wire.
 
 ## Safety
 
@@ -130,14 +136,16 @@ make size     # Show memory usage
 ## Troubleshooting
 
 **No telemetry data:**
-- Verify ESC has serial telemetry output (separate from signal wire)
-- Check PA10 connection to ESC telemetry pad
-- Confirm ESC firmware supports telemetry (BLHeli_32 configurator)
+- Enable bidirectional DShot in ESC configurator (BLHeli_32: set "Bidirectional DShot" to ON)
+- Motor must be spinning to receive telemetry
+- Check that PA8 is correctly configured for both output and input capture
+- Verify GCR decoding is working (check statistics with 's' command)
 
 **Motor doesn't spin:**
 - Check DShot signal with logic analyzer (1.67μs bit period for DShot600)
 - Verify ESC is armed (needs ~1 second of zero throttle)
 - Confirm throttle value is ≥48
+- Send beep command ('b') to verify ESC communication
 
 **Build errors:**
 - Ensure `arm-none-eabi-gcc` is in PATH

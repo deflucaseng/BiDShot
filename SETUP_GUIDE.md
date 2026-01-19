@@ -1,6 +1,6 @@
-# VSCode Setup Guide for DShot Project
+# VSCode Setup Guide for BiDShot Project
 
-This guide will help you set up your development environment for the DShot STM32 project using VSCode.
+This guide will help you set up your development environment for the BiDShot (Bidirectional DShot) STM32 project using VSCode.
 
 ## 1. Install Required Software
 
@@ -70,8 +70,8 @@ The project needs official CMSIS headers from ST. You have two options:
 1. Go to: https://www.st.com/en/embedded-software/stm32cubef4.html
 2. Download STM32CubeF4
 3. Extract and copy these folders to your project:
-   - `Drivers/CMSIS/Include/` → `dshot-stm32/CMSIS/Include/`
-   - `Drivers/CMSIS/Device/ST/STM32F4xx/Include/` → `dshot-stm32/CMSIS/Device/ST/STM32F4xx/Include/`
+   - `Drivers/CMSIS/Include/` → `BiDShot/CMSIS/Include/`
+   - `Drivers/CMSIS/Device/ST/STM32F4xx/Include/` → `BiDShot/CMSIS/Device/ST/STM32F4xx/Include/`
 
 ### Option B: Use Minimal Headers (Quick Start)
 
@@ -88,7 +88,7 @@ From STM32CubeF4:
 STM32CubeF4/Drivers/CMSIS/Device/ST/STM32F4xx/Source/Templates/gcc/startup_stm32f411xe.s
 ```
 
-Place in: `dshot-stm32/startup/`
+Place in: `BiDShot/startup/`
 
 ### Linker Script
 
@@ -97,7 +97,7 @@ From STM32CubeF4 or create based on your MCU's memory:
 STM32CubeF4/Drivers/CMSIS/Device/ST/STM32F4xx/Source/Templates/gcc/linker/STM32F411xE.ld
 ```
 
-Place in: `dshot-stm32/linker/`
+Place in: `BiDShot/linker/`
 
 ## 5. Configure Hardware Settings
 
@@ -130,7 +130,7 @@ Common timer/pin combinations:
 ### Using Terminal
 
 ```bash
-cd dshot-stm32
+cd BiDShot
 make
 ```
 
@@ -216,9 +216,10 @@ minicom -D /dev/ttyUSB0 -b 115200
 - Connect ESC power (typically 7-25V)
 - Connect GND between STM32 and ESC
 
-### Signal
-- Connect DShot signal pin (e.g., PA8) to ESC signal wire
+### Bidirectional DShot Signal
+- Connect PA8 to ESC signal wire (this single wire handles both commands AND telemetry)
 - ESC signal wire is usually white or yellow
+- **Important:** Enable "Bidirectional DShot" in your ESC configurator (BLHeli_32 Configurator)
 
 ### Serial Monitor
 - Connect PA2 (UART TX) to USB-serial adapter RX
@@ -230,6 +231,8 @@ minicom -D /dev/ttyUSB0 -b 115200
   - SWCLK
   - GND
   - 3.3V (optional)
+
+**Note:** Unlike traditional DShot setups, bidirectional DShot does NOT require a separate telemetry wire. All communication happens on the single signal wire (PA8).
 
 ## 10. Debugging (Optional)
 
@@ -301,10 +304,12 @@ minicom -D /dev/ttyUSB0 -b 115200
 - Ensure GND is connected
 
 ### Telemetry Not Received
-- ESC must support bidirectional DShot
-- Check ESC firmware is updated
+- ESC must support bidirectional DShot (most BLHeli_32 ESCs do)
+- **Enable "Bidirectional DShot" in ESC configurator** (this is the most common issue!)
+- Check ESC firmware is updated (BLHeli_32 v32.7+ recommended)
 - Motor must be spinning to generate telemetry
-- Verify timer/DMA configuration
+- Verify timer/DMA configuration for both output and input capture
+- Check telemetry statistics with 's' command to see success/error rates
 
 ## 13. Next Steps
 

@@ -1,13 +1,16 @@
-# DShot STM32 Project - Architecture & Summary
+# BiDShot - Bidirectional DShot Architecture & Summary
 
 ## Project Overview
 
-This is a complete, from-scratch implementation of the bidirectional DShot protocol for STM32 microcontrollers using VSCode as the development environment. The project demonstrates how to:
+BiDShot is a complete, from-scratch implementation of the bidirectional DShot protocol for STM32 microcontrollers using VSCode as the development environment. The project demonstrates how to:
 
 1. Send digital motor commands via DShot600
-2. Receive telemetry data (eRPM) from ESCs
-3. Display telemetry via serial UART
-4. Build embedded firmware without Arduino or vendor IDEs
+2. Receive telemetry data (eRPM) from ESCs on the **same signal wire**
+3. Decode 21-bit GCR-encoded telemetry responses
+4. Display telemetry via serial UART
+5. Build embedded firmware without Arduino or vendor IDEs
+
+**Key Feature:** Single-wire bidirectional communication—the DShot signal pin (PA8) switches between output mode (sending commands) and input capture mode (receiving telemetry).
 
 ## Architecture
 
@@ -42,16 +45,18 @@ This is a complete, from-scratch implementation of the bidirectional DShot proto
 ## File Structure
 
 ```
-dshot-stm32/
+BiDShot/
 ├── src/                      # Source files
 │   ├── main.c               # Main application with motor control
-│   ├── dshot.c              # DShot protocol implementation
+│   ├── dshot.c              # Bidirectional DShot protocol implementation
+│   ├── esc_telemetry.c      # Telemetry compatibility layer
 │   ├── uart.c               # Serial UART driver
 │   ├── nvic.c               # Interrupt controller
 │   └── system_stm32f4xx.c   # System initialization
 │
 ├── inc/                      # Header files
-│   ├── dshot.h              # DShot API and configuration
+│   ├── dshot.h              # Bidirectional DShot API and configuration
+│   ├── esc_telemetry.h      # Telemetry interface
 │   ├── uart.h               # UART API
 │   └── stm32f4xx.h          # Register definitions
 │
@@ -71,32 +76,35 @@ dshot-stm32/
 ├── setup.sh                  # Helper setup script
 │
 ├── README.md                 # Project documentation
+├── ARCHITECTURE.md          # This file - technical deep-dive
 ├── SETUP_GUIDE.md           # Detailed setup instructions
 └── DSHOT_REFERENCE.md       # DShot protocol reference
 ```
 
 ## Key Components
 
-### 1. DShot Driver (dshot.c/h)
+### 1. Bidirectional DShot Driver (dshot.c/h)
 
 **Responsibilities:**
 - DShot frame generation with CRC
-- Timer and DMA configuration
-- PWM output for bit encoding
-- Input capture for telemetry
-- GCR decoding
-- State machine management
+- Timer and DMA configuration for PWM output
+- **Bidirectional GPIO switching** (output → input → output)
+- Input capture for telemetry response
+- **GCR decoding** of 21-bit ESC responses
+- State machine management (IDLE → SENDING → WAIT_TELEM → RECEIVING → PROCESSING)
 
 **Key Functions:**
-- `dshot_init()` - Initialize hardware
-- `dshot_send_throttle()` - Send motor command
-- `dshot_get_telemetry()` - Read eRPM data
-- `dshot_send_command()` - Send special commands
+- `dshot_init()` - Initialize hardware for bidirectional operation
+- `dshot_send_throttle()` - Send motor command (telemetry always requested)
+- `dshot_get_telemetry()` - Read eRPM/RPM data
+- `dshot_send_command()` - Send special commands (beeps, direction, etc.)
+- `dshot_update()` - Process telemetry state machine (call from main loop)
 
 **Hardware Used:**
-- TIM1 Channel 1 (configurable)
-- DMA2 Stream 1
-- GPIO PA8 (configurable)
+- TIM1 Channel 1 (configurable) - PWM output and input capture
+- DMA2 Stream 1 - Output DMA for PWM duty cycles
+- DMA2 Stream 6 - Input capture DMA for telemetry edges
+- GPIO PA8 - **Bidirectional** (switches between output and input modes)
 
 ### 2. UART Driver (uart.c/h)
 
@@ -170,19 +178,29 @@ dshot-stm32/
 
 ### Bidirectional Telemetry Reception
 
-1. **Switch**: Reconfigure GPIO from output to input
-2. **Capture**: Use input capture to record edge timings
-3. **Decode**: Convert pulse widths to bits
-4. **GCR**: Decode 21-bit GCR to 16-bit data
-5. **Validate**: Check CRC and extract eRPM
+1. **Switch**: After DMA complete interrupt, reconfigure PA8 from output to input capture
+2. **Wait**: ESC responds ~25-30μs after receiving the command frame
+3. **Capture**: Use input capture with DMA to record all edge timings
+4. **Decode**: Convert pulse widths to bits (response is at 5/4 command bitrate = 750kbps for DShot600)
+5. **GCR Decode**: Convert 21-bit GCR-encoded response to 16-bit data (12-bit period + 4-bit CRC)
+6. **Validate**: Check CRC and convert period to eRPM/RPM
+7. **Restore**: Switch PA8 back to output mode for next command
 
 ### Timing (DShot600)
 
+**Command (STM32 → ESC):**
 - **Bit period**: 1.67 μs
 - **Frame time**: ~27 μs (16 bits)
 - **'0' bit duty**: 37.5% (625 ns high)
 - **'1' bit duty**: 75% (1250 ns high)
-- **Update rate**: 50 Hz (20 ms between frames)
+
+**Telemetry Response (ESC → STM32):**
+- **Response delay**: ~25-30 μs after command frame ends
+- **Response bitrate**: 750 kbps (5/4 × command rate)
+- **Response bit period**: ~1.33 μs
+- **Response frame**: 21 bits GCR-encoded (~28 μs)
+
+**Update rate**: 50 Hz (20 ms between frames)
 
 ## Configuration Options
 
@@ -190,23 +208,19 @@ All configurable in `inc/dshot.h`:
 
 ```c
 #define DSHOT_SPEED             600    // 150, 300, 600, 1200
-#define MOTOR_POLES             14     // Your motor poles
-#define DSHOT_TIMER             TIM1   // Timer selection
+#define MOTOR_POLES             14     // Your motor pole pairs (for RPM calculation)
+#define DSHOT_TIMER             TIM1   // Timer selection (must support DMA)
 #define DSHOT_GPIO_PORT         GPIOA  // GPIO port
-#define DSHOT_GPIO_PIN          8      // Pin number
+#define DSHOT_GPIO_PIN          8      // Pin number (PA8 for TIM1_CH1)
+#define DSHOT_DMA_STREAM        DMA2_Stream1  // DMA for PWM output
+#define DSHOT_IC_DMA_STREAM     DMA2_Stream6  // DMA for input capture
 ```
 
-## Build System
+**Note:** The GPIO pin must support both timer output compare (for sending) and input capture (for receiving telemetry).
 
-### Makefile Features
-- Automatic dependency tracking
-- Optimized for size (-O2)
-- Dead code elimination
-- Memory map generation
-- Multiple flash options
-- Clean rebuild support
 
-### Build Commands
+
+## Build Commands
 ```bash
 make           # Build project
 make clean     # Clean build files
@@ -232,19 +246,21 @@ make disasm    # Generate disassembly
 dshot_init();
 uart_init(115200);
 
-// Arm ESC
+// Arm ESC (send zero throttle for ~1 second)
 for (int i = 0; i < 100; i++) {
-    dshot_send_throttle(48, false);
+    dshot_send_throttle(DSHOT_THROTTLE_MIN);  // 48
+    dshot_update();  // Process telemetry state machine
     delay_ms(10);
 }
 
-// Control motor
-dshot_send_throttle(500, true);  // Mid throttle, request telemetry
+// Control motor (telemetry is always requested in bidirectional mode)
+dshot_send_throttle(500);
 
-// Read telemetry
+// Process and read telemetry
+dshot_update();
 if (dshot_telemetry_available()) {
     dshot_telemetry_t* telem = dshot_get_telemetry();
-    printf("RPM: %u\r\n", telem->rpm);
+    printf("RPM: %u (eRPM: %u)\r\n", telem->rpm, telem->erpm);
 }
 ```
 
@@ -256,108 +272,12 @@ if (dshot_telemetry_available()) {
 - `t` : Run test cycle
 - `h` : Show help
 
-## Performance
 
-### Memory Usage (Typical)
-- Flash: ~2-4 KB
-- RAM: ~500 bytes
-- Stack: ~1 KB
-
-### CPU Usage
-- DShot transmission: <1% @ 50 Hz
-- Telemetry processing: <2%
-- Main loop: Minimal
-
-### Update Rates
-- DShot output: 50-1000 Hz (configurable)
-- Telemetry: Every frame (if requested)
-- Serial output: As needed
-
-## Extensibility
-
-### Easy to Add
-- Multiple motors (copy timer config)
-- Different protocols (OneShot, Multishot)
-- Additional sensors
-- Custom telemetry processing
-- Flight controller integration
-
-### Example: Adding a Second Motor
-1. Configure TIM2_CH1 in same way as TIM1
-2. Copy DShot buffer and state management
-3. Add second DMA stream
-4. Update interrupt handlers
-
-## Testing Strategy
-
-### Phase 1: Basic Output
-1. Build and flash firmware
-2. Connect logic analyzer
-3. Verify DShot timing
-4. Send command 0 (motor stop)
-
-### Phase 2: Motor Control
-1. Connect ESC (no propeller!)
-2. Send beep commands
-3. Gradually increase throttle
-4. Verify motor responds
-
-### Phase 3: Telemetry
-1. Request telemetry bit
-2. Monitor input capture
-3. Verify GCR decoding
-4. Display RPM values
-
-## Common Customizations
-
-### For STM32F103 (72 MHz)
-- Adjust timer calculations
-- Use TIM2/TIM3 (no TIM1 advanced features)
-- Reduce DShot speed to 300 or 150
-
-### For STM32H7 (High Performance)
-- Support DShot1200
-- Add oversampling for better precision
-- Implement extended telemetry
-
-### For Multiple Motors (Quadcopter)
-- Array of DShot structures
-- Synchronized updates
-- Motor mixing algorithms
-
-## Troubleshooting
-
-See `SETUP_GUIDE.md` for detailed troubleshooting steps.
-
-Quick checks:
-1. ✓ ARM toolchain installed?
-2. ✓ Correct timer/GPIO pins?
-3. ✓ ESC powered properly?
-4. ✓ Signal wire connected?
-5. ✓ Serial terminal working?
-
-## Future Enhancements
-
-Potential additions:
-- [ ] Extended telemetry (temperature, voltage, current)
-- [ ] DShot150/300/1200 support
-- [ ] Multiple motor support
-- [ ] Kalman filtering for smooth RPM
-- [ ] Flight controller integration
-- [ ] GUI configuration tool
-- [ ] ESC passthrough programming
-- [ ] Kiss protocol support
 
 ## License
 
 MIT License - Free to use, modify, and distribute.
 
-## Resources
-
-- **Betaflight**: Reference implementation
-- **BLHeli_32**: ESC firmware with bidirectional DShot
-- **STM32 Reference Manual**: Hardware details
-- **ARM CMSIS**: Standard peripheral library
 
 ## Credits
 
