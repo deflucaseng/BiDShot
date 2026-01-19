@@ -1,0 +1,26 @@
+{
+    "configurations": [
+        {
+            "name": "STM32",
+            "includePath": [
+                "${workspaceFolder}/inc",
+                "${workspaceFolder}/CMSIS/Include",
+                "${workspaceFolder}/CMSIS/Device/ST/STM32F4xx/Include"
+            ],
+            "defines": [
+                "STM32F411xE",
+                "USE_HAL_DRIVER"
+            ],
+            "compilerPath": "/usr/bin/arm-none-eabi-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-arm",
+            "compilerArgs": [
+                "-mcpu=cortex-m4",
+                "-mthumb",
+                "-mfloat-abi=soft"
+            ]
+        }
+    ],
+    "version": 4
+}
